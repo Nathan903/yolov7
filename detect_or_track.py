@@ -196,7 +196,9 @@ parser.add_argument('--nolabel', action='store_true', help='don`t show label')
 parser.add_argument('--unique-track-color', action='store_true', help='show each track in unique color')
 
 
-opt = parser.parse_args()
+# opt = parser.parse_args()
+opt = parser.parse_args([    "--weights", "yolov7.pt",    "--nosave",    "--view-img",    "--show-fps",    "--track",    "--show-track",    "--unique-track-color",    "--classes", "0",    "--source", "Media1.mp4"])
+
 print(opt)
 np.random.seed(opt.seed)
 
