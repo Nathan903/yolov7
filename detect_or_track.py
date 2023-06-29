@@ -17,6 +17,8 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 
 from sort import *
 
+mywebcam = cv2.VideoCapture(0)
+
 
 """Function to Draw Bounding boxes"""
 def draw_boxes(img, bbox, identities=None, categories=None, confidences = None, names=None, colors = None):
@@ -100,6 +102,12 @@ def detect(save_img=False):
     startTime = 0
     ###################################
     for path, img, im0s, vid_cap in dataset:
+        ret, frame = mywebcam.read()
+        
+        im0s = np.array(frame)
+        frame = cv2.resize(frame, (576,640))        
+        img = np.array(frame).transpose(2, 0, 1)
+        
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -158,7 +166,7 @@ def detect(save_img=False):
   
                     tracked_dets = sort_tracker.update(dets_to_sort, opt.unique_track_color)
                     tracks =sort_tracker.getTrackers()
-
+                    print("\n",tracked_dets,"\n")
                     # draw boxes for visualization
                     if len(tracked_dets)>0:
                         bbox_xyxy = tracked_dets[:,:4]
@@ -192,7 +200,7 @@ def detect(save_img=False):
                 
                 
             # Print time (inference + NMS)
-            print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
+            # print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
 
             # Stream results
             ######################################################
@@ -209,7 +217,7 @@ def detect(save_img=False):
                 cv2.waitKey(1)  # 1 millisecond
 
             # Save results (image with detections)
-            if save_img:
+            # if save_img:
                 if dataset.mode == 'image':
                     cv2.imwrite(save_path, im0)
                     print(f" The image with the result is saved in: {save_path}")
