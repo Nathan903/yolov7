@@ -47,174 +47,123 @@ def draw_boxes(img, bbox, identities=None, categories=None, confidences = None, 
     return img
 
 
-def detect(save_img=False):
-    source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
-    save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
-    save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
-
-    # Initialize
-    set_logging()
-    device = select_device(opt.device)
-    half = device.type != 'cpu'  # half precision only supported on CUDA
-
-    # Load model
-    model = attempt_load(weights, map_location=device)  # load FP32 model
-    stride = int(model.stride.max())  # model stride
-    imgsz = check_img_size(imgsz, s=stride)  # check img_size
-
-    if trace:
-        model = TracedModel(model, device, opt.img_size)
-
-    if half:
-        model.half()  # to FP16
-
-    # Second-stage classifier
-    classify = False
-    if classify:
-        modelc = load_classifier(name='resnet101', n=2)  # initialize
-        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
-
-    # Set Dataloader
-    vid_path, vid_writer = None, None
-    view_img = check_imshow()
-    cudnn.benchmark = True  # set True to speed up constant image size inference
-    # dataset = LoadImages(source, img_size=imgsz, stride=stride)
-
-    # Get names and colors
-    names = model.module.names if hasattr(model, 'module') else model.names
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
-
-    # Run inference
-    if device.type != 'cpu':
-        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    old_img_w = old_img_h = imgsz
-    old_img_b = 1
-
-    t0 = time.time()
+def detect(image_frame, save_img=False):
     ###################################
-    startTime = 0
-    ###################################
-    while 1:
-        _ , frame = mywebcam.read()
-        
-        im0s = np.array(frame)
-        frame = cv2.resize(frame, (576,640))        
-        img = np.array(frame).transpose(2, 0, 1)
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
-        img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
+    im0s = np.array(image_frame)
+    image_frame = cv2.resize(image_frame, (576,640))        
+    img = np.array(image_frame).transpose(2, 0, 1)
+    img = torch.from_numpy(img).to(device)
+    img = img.half() if half else img.float()  # uint8 to fp16/32
+    img /= 255.0  # 0 - 255 to 0.0 - 1.0
+    if img.ndimension() == 3:
+        img = img.unsqueeze(0)
 
-        # Warmup
-        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-            old_img_b = img.shape[0]
-            old_img_h = img.shape[2]
-            old_img_w = img.shape[3]
-            for i in range(3):
-                model(img, augment=opt.augment)[0]
+    # Warmup
+    if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+        old_img_b = img.shape[0]
+        old_img_h = img.shape[2]
+        old_img_w = img.shape[3]
+        for i in range(3):
+            model(img, augment=opt.augment)[0]
 
-        # Inference
-        pred = model(img, augment=opt.augment)[0]
+    # Inference
+    pred = model(img, augment=opt.augment)[0]
 
-        # Apply NMS
-        pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+    # Apply NMS
+    pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
 
-        # Process detections
-        for i, det in enumerate(pred):  # detections per image
-            im0=im0s
-            # p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
+    # Process detections
+    for i, det in enumerate(pred):  # detections per image
+        im0=im0s
+        # p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
 
-            # p = Path(p)  # to Path
-            # save_path = str(save_dir / p.name)  # img.jpg
-            # txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
-            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-            if len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+        # p = Path(p)  # to Path
+        # save_path = str(save_dir / p.name)  # img.jpg
+        # txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+        gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        if len(det):
+            # Rescale boxes from img_size to im0 size
+            det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
-                # Print results
-                """
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
-                """
-                dets_to_sort = np.empty((0,6))
-                # NOTE: We send in detected object class too
-                for x1,y1,x2,y2,conf,detclass in det.cpu().detach().numpy():
-                    dets_to_sort = np.vstack((dets_to_sort, 
-                                np.array([x1, y1, x2, y2, conf, detclass])))
+            # Print results
+            """
+            for c in det[:, -1].unique():
+                n = (det[:, -1] == c).sum()  # detections per class
+                s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+            """
+            dets_to_sort = np.empty((0,6))
+            # NOTE: We send in detected object class too
+            for x1,y1,x2,y2,conf,detclass in det.cpu().detach().numpy():
+                dets_to_sort = np.vstack((dets_to_sort, 
+                            np.array([x1, y1, x2, y2, conf, detclass])))
 
 
-                tracked_dets = sort_tracker.update(dets_to_sort, opt.unique_track_color)
-                tracks =sort_tracker.getTrackers()
-                print("\n",tracked_dets,"\n")
-                # draw boxes for visualization
-                if len(tracked_dets)>0:
-                    bbox_xyxy = tracked_dets[:,:4]
-                    identities = tracked_dets[:, 8]
-                    categories = tracked_dets[:, 4]
-                    confidences = None
+            tracked_dets = sort_tracker.update(dets_to_sort, opt.unique_track_color)
+            tracks =sort_tracker.getTrackers()
+            print("\n",tracked_dets,"\n")
+            # draw boxes for visualization
+            if len(tracked_dets)>0:
+                bbox_xyxy = tracked_dets[:,:4]
+                identities = tracked_dets[:, 8]
+                categories = tracked_dets[:, 4]
+                confidences = None
 
-                    if opt.show_track:
-                        #loop over tracks
-                        for t, track in enumerate(tracks):
-              
-                            track_color = colors[int(track.detclass)] if not opt.unique_track_color else sort_tracker.color_list[t]
+                if opt.show_track:
+                    #loop over tracks
+                    for t, track in enumerate(tracks):
+          
+                        track_color = colors[int(track.detclass)] if not opt.unique_track_color else sort_tracker.color_list[t]
 
-                            [cv2.line(im0, (int(track.centroidarr[i][0]),
-                                            int(track.centroidarr[i][1])), 
-                                            (int(track.centroidarr[i+1][0]),
-                                            int(track.centroidarr[i+1][1])),
-                                            track_color, thickness=opt.thickness) 
-                                            for i,_ in  enumerate(track.centroidarr) 
-                                                if i < len(track.centroidarr)-1 ] 
+                        [cv2.line(im0, (int(track.centroidarr[i][0]),
+                                        int(track.centroidarr[i][1])), 
+                                        (int(track.centroidarr[i+1][0]),
+                                        int(track.centroidarr[i+1][1])),
+                                        track_color, thickness=opt.thickness) 
+                                        for i,_ in  enumerate(track.centroidarr) 
+                                            if i < len(track.centroidarr)-1 ] 
 
-                im0 = draw_boxes(im0, bbox_xyxy, identities, categories, confidences, names, colors)
+            im0 = draw_boxes(im0, bbox_xyxy, identities, categories, confidences, names, colors)
 
-                
-                    
-                
-                
-            # Print time (inference + NMS)
-            # print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
+            
+                            
+        # Print time (inference + NMS)
+        # print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
 
-            # Stream results
-            ######################################################
-            # if dataset.mode != 'image' and opt.show_fps:
-            #     currentTime = time.time()
+        # Stream results
+        ######################################################
+        # if dataset.mode != 'image' and opt.show_fps:
+        #     currentTime = time.time()
 
-            #     fps = 1/(currentTime - startTime)
-            #     startTime = currentTime
-            #     cv2.putText(im0, "FPS: " + str(int(fps)), (20, 70), cv2.FONT_HERSHEY_PLAIN, 2, (0,255,0),2)
+        #     fps = 1/(currentTime - startTime)
+        #     startTime = currentTime
+        #     cv2.putText(im0, "FPS: " + str(int(fps)), (20, 70), cv2.FONT_HERSHEY_PLAIN, 2, (0,255,0),2)
 
-            #######################################################
-            if view_img:
-                cv2.imshow("WINDOWNAME", im0)
-                cv2.waitKey(1)  # 1 millisecond
+        #######################################################
+        if view_img:
+            cv2.imshow("WINDOWNAME", im0)
+            cv2.waitKey(1)  # 1 millisecond
 
-            # Save results (image with detections)
-            # if save_img:
-            #     if dataset.mode == 'image':
-            #         cv2.imwrite(save_path, im0)
-            #         print(f" The image with the result is saved in: {save_path}")
-            #     else:  # 'video' or 'stream'
-            #         if vid_path != save_path:  # new video
-            #             vid_path = save_path
-            #             if isinstance(vid_writer, cv2.VideoWriter):
-            #                 vid_writer.release()  # release previous video writer
-            #             if vid_cap:  # video
-            #                 fps = vid_cap.get(cv2.CAP_PROP_FPS)
-            #                 w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            #                 h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            #             else:  # stream
-            #                 fps, w, h = 30, im0.shape[1], im0.shape[0]
-            #                 save_path += '.mp4'
-            #             vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-            #         vid_writer.write(im0)
+        # Save results (image with detections)
+        # if save_img:
+        #     if dataset.mode == 'image':
+        #         cv2.imwrite(save_path, im0)
+        #         print(f" The image with the result is saved in: {save_path}")
+        #     else:  # 'video' or 'stream'
+        #         if vid_path != save_path:  # new video
+        #             vid_path = save_path
+        #             if isinstance(vid_writer, cv2.VideoWriter):
+        #                 vid_writer.release()  # release previous video writer
+        #             if vid_cap:  # video
+        #                 fps = vid_cap.get(cv2.CAP_PROP_FPS)
+        #                 w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        #                 h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        #             else:  # stream
+        #                 fps, w, h = 30, im0.shape[1], im0.shape[0]
+        #                 save_path += '.mp4'
+        #             vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+        #         vid_writer.write(im0)
 
 
-    print(f'Done. ({time.time() - t0:.3f}s)')
 
 
 if __name__ == '__main__':
@@ -258,10 +207,43 @@ if __name__ == '__main__':
 
     #check_requirements(exclude=('pycocotools', 'thop'))
 
+    source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
+    save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
+    save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
+
+    # Initialize
+    set_logging()
+    device = select_device(opt.device)
+    half = device.type != 'cpu'  # half precision only supported on CUDA
+    if half:
+        model.half()  # to FP16
+
+    # Load model
+    model = attempt_load(weights, map_location=device)  # load FP32 model
+    stride = int(model.stride.max())  # model stride
+    imgsz = check_img_size(imgsz, s=stride)  # check img_size
+    if trace:
+        model = TracedModel(model, device, opt.img_size)
+
+    # Set Dataloader
+    vid_path, vid_writer = None, None
+    view_img = check_imshow()
+    cudnn.benchmark = True  # set True to speed up constant image size inference
+    # dataset = LoadImages(source, img_size=imgsz, stride=stride)
+
+    # Get names and colors
+    names = model.module.names if hasattr(model, 'module') else model.names
+    colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+
+    # Run inference
+    if device.type != 'cpu':
+        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    old_img_w = old_img_h = imgsz
+    old_img_b = 1
+
+
     with torch.no_grad():
-        if opt.update:  # update all models (to fix SourceChangeWarning)
-            for opt.weights in ['yolov7.pt']:
-                detect()
-                strip_optimizer(opt.weights)
-        else:
-            detect()
+        while 1:
+            _, image_frame  = mywebcam.read()
+            detect(image_frame  )
+
