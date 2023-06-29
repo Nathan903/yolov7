@@ -216,8 +216,6 @@ save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_
 set_logging()
 device = select_device(opt.device)
 half = device.type != 'cpu'  # half precision only supported on CUDA
-if half:
-    model.half()  # to FP16
 
 # Load model
 model = attempt_load(weights, map_location=device)  # load FP32 model
@@ -225,6 +223,8 @@ stride = int(model.stride.max())  # model stride
 imgsz = check_img_size(imgsz, s=stride)  # check img_size
 if trace:
     model = TracedModel(model, device, opt.img_size)
+if half:
+    model.half()  # to FP16
 
 # Set Dataloader
 vid_path, vid_writer = None, None
