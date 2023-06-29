@@ -50,11 +50,7 @@ def draw_boxes(img, bbox, identities=None, categories=None, confidences = None, 
 def detect(save_img=False):
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
-        ('rtsp://', 'rtmp://', 'http://', 'https://'))
     save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
-    if not opt.nosave:  
-        (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -80,12 +76,9 @@ def detect(save_img=False):
 
     # Set Dataloader
     vid_path, vid_writer = None, None
-    if webcam:
-        view_img = check_imshow()
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-    else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+    view_img = check_imshow()
+    cudnn.benchmark = True  # set True to speed up constant image size inference
+    # dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
@@ -101,13 +94,12 @@ def detect(save_img=False):
     ###################################
     startTime = 0
     ###################################
-    for path, img, im0s, vid_cap in dataset:
-        ret, frame = mywebcam.read()
+    while 1:
+        _ , frame = mywebcam.read()
         
         im0s = np.array(frame)
         frame = cv2.resize(frame, (576,640))        
         img = np.array(frame).transpose(2, 0, 1)
-        
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -123,38 +115,30 @@ def detect(save_img=False):
                 model(img, augment=opt.augment)[0]
 
         # Inference
-        t1 = time_synchronized()
         pred = model(img, augment=opt.augment)[0]
-        t2 = time_synchronized()
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t3 = time_synchronized()
-
-        # Apply Classifier
-        if classify:
-            pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            if webcam:  # batch_size >= 1
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-            else:
-                p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
+            im0=im0s
+            # p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
 
-            p = Path(p)  # to Path
-            save_path = str(save_dir / p.name)  # img.jpg
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            # p = Path(p)  # to Path
+            # save_path = str(save_dir / p.name)  # img.jpg
+            # txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
                 # Print results
+                """
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
-
+                """
                 dets_to_sort = np.empty((0,6))
                 # NOTE: We send in detected object class too
                 for x1,y1,x2,y2,conf,detclass in det.cpu().detach().numpy():
@@ -162,37 +146,30 @@ def detect(save_img=False):
                                 np.array([x1, y1, x2, y2, conf, detclass])))
 
 
-                if opt.track:
-  
-                    tracked_dets = sort_tracker.update(dets_to_sort, opt.unique_track_color)
-                    tracks =sort_tracker.getTrackers()
-                    print("\n",tracked_dets,"\n")
-                    # draw boxes for visualization
-                    if len(tracked_dets)>0:
-                        bbox_xyxy = tracked_dets[:,:4]
-                        identities = tracked_dets[:, 8]
-                        categories = tracked_dets[:, 4]
-                        confidences = None
+                tracked_dets = sort_tracker.update(dets_to_sort, opt.unique_track_color)
+                tracks =sort_tracker.getTrackers()
+                print("\n",tracked_dets,"\n")
+                # draw boxes for visualization
+                if len(tracked_dets)>0:
+                    bbox_xyxy = tracked_dets[:,:4]
+                    identities = tracked_dets[:, 8]
+                    categories = tracked_dets[:, 4]
+                    confidences = None
 
-                        if opt.show_track:
-                            #loop over tracks
-                            for t, track in enumerate(tracks):
-                  
-                                track_color = colors[int(track.detclass)] if not opt.unique_track_color else sort_tracker.color_list[t]
+                    if opt.show_track:
+                        #loop over tracks
+                        for t, track in enumerate(tracks):
+              
+                            track_color = colors[int(track.detclass)] if not opt.unique_track_color else sort_tracker.color_list[t]
 
-                                [cv2.line(im0, (int(track.centroidarr[i][0]),
-                                                int(track.centroidarr[i][1])), 
-                                                (int(track.centroidarr[i+1][0]),
-                                                int(track.centroidarr[i+1][1])),
-                                                track_color, thickness=opt.thickness) 
-                                                for i,_ in  enumerate(track.centroidarr) 
-                                                    if i < len(track.centroidarr)-1 ] 
-                else:
-                    bbox_xyxy = dets_to_sort[:,:4]
-                    identities = None
-                    categories = dets_to_sort[:, 5]
-                    confidences = dets_to_sort[:, 4]
-                
+                            [cv2.line(im0, (int(track.centroidarr[i][0]),
+                                            int(track.centroidarr[i][1])), 
+                                            (int(track.centroidarr[i+1][0]),
+                                            int(track.centroidarr[i+1][1])),
+                                            track_color, thickness=opt.thickness) 
+                                            for i,_ in  enumerate(track.centroidarr) 
+                                                if i < len(track.centroidarr)-1 ] 
+
                 im0 = draw_boxes(im0, bbox_xyxy, identities, categories, confidences, names, colors)
 
                 
@@ -204,41 +181,38 @@ def detect(save_img=False):
 
             # Stream results
             ######################################################
-            if dataset.mode != 'image' and opt.show_fps:
-                currentTime = time.time()
+            # if dataset.mode != 'image' and opt.show_fps:
+            #     currentTime = time.time()
 
-                fps = 1/(currentTime - startTime)
-                startTime = currentTime
-                cv2.putText(im0, "FPS: " + str(int(fps)), (20, 70), cv2.FONT_HERSHEY_PLAIN, 2, (0,255,0),2)
+            #     fps = 1/(currentTime - startTime)
+            #     startTime = currentTime
+            #     cv2.putText(im0, "FPS: " + str(int(fps)), (20, 70), cv2.FONT_HERSHEY_PLAIN, 2, (0,255,0),2)
 
             #######################################################
             if view_img:
-                cv2.imshow(str(p), im0)
+                cv2.imshow("WINDOWNAME", im0)
                 cv2.waitKey(1)  # 1 millisecond
 
             # Save results (image with detections)
             # if save_img:
-                if dataset.mode == 'image':
-                    cv2.imwrite(save_path, im0)
-                    print(f" The image with the result is saved in: {save_path}")
-                else:  # 'video' or 'stream'
-                    if vid_path != save_path:  # new video
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()  # release previous video writer
-                        if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
-                            save_path += '.mp4'
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                    vid_writer.write(im0)
+            #     if dataset.mode == 'image':
+            #         cv2.imwrite(save_path, im0)
+            #         print(f" The image with the result is saved in: {save_path}")
+            #     else:  # 'video' or 'stream'
+            #         if vid_path != save_path:  # new video
+            #             vid_path = save_path
+            #             if isinstance(vid_writer, cv2.VideoWriter):
+            #                 vid_writer.release()  # release previous video writer
+            #             if vid_cap:  # video
+            #                 fps = vid_cap.get(cv2.CAP_PROP_FPS)
+            #                 w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            #                 h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            #             else:  # stream
+            #                 fps, w, h = 30, im0.shape[1], im0.shape[0]
+            #                 save_path += '.mp4'
+            #             vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+            #         vid_writer.write(im0)
 
-    if save_txt or save_img:
-        s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
-        #print(f"Results saved to {save_dir}{s}")
 
     print(f'Done. ({time.time() - t0:.3f}s)')
 
