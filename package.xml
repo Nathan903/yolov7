@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>yolotracker</name>
+  <version>0.0.0</version>
+  <description>A ROS 2 package</description>
+  <author email="you@your.email">Your Name</author>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rclpy</build_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>  <!-- Add this line -->
+</package>
